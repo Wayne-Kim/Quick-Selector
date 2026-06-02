@@ -1,0 +1,61 @@
+name: quick-desktop
+options:
+  bundleIdPrefix: ${APPLE_BUNDLE_ID}
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.9.0
+
+targets:
+  quick-desktop:
+    type: application
+    platform: macOS
+    sources:
+      - path: quick-desktop
+    dependencies:
+      - package: Sparkle
+        product: Sparkle
+    info:
+      path: quick-desktop/Info.plist
+      properties:
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundleDisplayName: Quick Desktop
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleShortVersionString: "${APP_VERSION}"
+        CFBundleVersion: "${APP_BUILD}"
+        CFBundlePackageType: APPL
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        LSUIElement: true
+        NSDesktopFolderUsageDescription: "Quick Desktop reads files from your Desktop so you can drag them from the menu bar."
+        NSHighResolutionCapable: true
+        SUFeedURL: "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/appcast.xml"
+        SUPublicEDKey: "${SPARKLE_PUBLIC_KEY}"
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${APPLE_BUNDLE_ID}
+        PRODUCT_NAME: quick-desktop
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+        CODE_SIGN_ENTITLEMENTS: quick-desktop/quick-desktop.entitlements
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Developer ID Application
+          OTHER_CODE_SIGN_FLAGS: --timestamp --options=runtime
