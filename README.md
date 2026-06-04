@@ -29,6 +29,7 @@
 ## 주요 기능
 
 - 🚀 **메뉴바 즉시 호출** — 단축키나 화면 전환 없이 상태바 아이콘 클릭 한 번
+- 📁 **추적 폴더 지정** — 데스크탑 대신 원하는 폴더(다운로드, 작업 폴더 등)를 골라 추적
 - 🖼️ **썸네일 그리드** — 이미지·동영상·PDF는 실시간 미리보기
 - 📥 **외부 앱으로 드래그** — GitHub PR 첨부창, Slack, Finder, 메일 등에 바로 드롭
 - 🔄 **실시간 갱신** — 새 스크린샷을 찍으면 1초 안에 자동으로 맨 위에 등장
@@ -60,8 +61,9 @@
 | 셀을 다른 앱으로 드래그 | 파일을 그 앱에 드롭 (GitHub PR, Slack, Finder…) |
 | 셀 더블클릭 | 기본 앱으로 열기 |
 | 셀 우클릭 | Open · Reveal in Finder · Quick Look · Copy · Move to Trash |
+| 패널 헤더의 폴더 아이콘 클릭 | 추적할 폴더 선택 (기본값: 데스크탑) |
 | 패널 밖 클릭 또는 ESC | 패널 닫기 |
-| 상태바 아이콘 우클릭 | Launch at Login · Check for Updates · Quit |
+| 상태바 아이콘 우클릭 | Open Folder in Finder · Choose Folder to Track · Reset to Desktop · Launch at Login · Check for Updates · Quit |
 
 ![Drag a file out of the panel to any drop zone](docs/images/drag.png)
 

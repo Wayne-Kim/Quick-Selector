@@ -31,9 +31,18 @@ final class StatusBarController {
     private func showMenu() {
         let menu = NSMenu()
 
-        let openDesktop = NSMenuItem(title: "Open Desktop in Finder", action: #selector(openDesktopInFinder), keyEquivalent: "")
-        openDesktop.target = self
-        menu.addItem(openDesktop)
+        let openFolder = NSMenuItem(title: "Open Folder in Finder", action: #selector(openFolderInFinder), keyEquivalent: "")
+        openFolder.target = self
+        menu.addItem(openFolder)
+
+        let chooseFolder = NSMenuItem(title: "Choose Folder to Track…", action: #selector(chooseFolder), keyEquivalent: "")
+        chooseFolder.target = self
+        menu.addItem(chooseFolder)
+
+        let resetFolder = NSMenuItem(title: "Reset to Desktop", action: #selector(resetFolder), keyEquivalent: "")
+        resetFolder.target = self
+        resetFolder.isEnabled = !panelController.store.isTrackingDesktop
+        menu.addItem(resetFolder)
 
         menu.addItem(.separator())
 
@@ -70,10 +79,16 @@ final class StatusBarController {
         return "Quick Desktop \(version) (\(build))"
     }
 
-    @objc private func openDesktopInFinder() {
-        let url = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSString("~/Desktop").expandingTildeInPath)
-        NSWorkspace.shared.open(url)
+    @objc private func openFolderInFinder() {
+        NSWorkspace.shared.open(panelController.store.folderURL)
+    }
+
+    @objc private func chooseFolder() {
+        panelController.store.chooseFolder()
+    }
+
+    @objc private func resetFolder() {
+        panelController.store.resetToDesktop()
     }
 
     @objc private func toggleLaunchAtLogin() {

@@ -16,12 +16,22 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "square.stack.3d.up.fill")
                 .foregroundStyle(.tint)
-            Text("Desktop")
+            Text(store.folderName)
                 .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(store.folderURL.path)
             Spacer()
             Text("\(store.files.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            Button {
+                store.chooseFolder()
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Choose folder to track")
             Button {
                 store.refresh()
             } label: {
@@ -68,7 +78,7 @@ struct ContentView: View {
             Image(systemName: "tray")
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
-            Text("Desktop is empty")
+            Text("\(store.folderName) is empty")
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -81,15 +91,20 @@ struct ContentView: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 32))
                 .foregroundStyle(.orange)
-            Text("Desktop access denied")
+            Text("Folder access denied")
                 .font(.headline)
             Text("Grant access in System Settings →\nPrivacy & Security → Files and Folders.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            Button("Open System Settings") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") {
-                    NSWorkspace.shared.open(url)
+            HStack(spacing: 8) {
+                Button("Open System Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                Button("Choose Folder…") {
+                    store.chooseFolder()
                 }
             }
             .padding(.top, 4)

@@ -40,6 +40,9 @@ targets:
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true
         NSDesktopFolderUsageDescription: "Quick Desktop reads files from your Desktop so you can drag them from the menu bar."
+        NSDocumentsFolderUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSDownloadsFolderUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSRemovableVolumesUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
         NSHighResolutionCapable: true
         SUFeedURL: "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/appcast.xml"
         SUPublicEDKey: "${SPARKLE_PUBLIC_KEY}"

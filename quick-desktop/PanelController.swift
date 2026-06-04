@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class PanelController {
     private let panel: NSPanel
-    private let store: DesktopStore
+    let store: DesktopStore
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
 
