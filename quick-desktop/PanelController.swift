@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+/// A borderless, non-activating panel that can still become key so the SwiftUI
+/// content receives keyboard events (selection shortcuts, inline rename, etc.).
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 @MainActor
 final class PanelController {
     private let panel: NSPanel
@@ -16,7 +23,7 @@ final class PanelController {
         content.translatesAutoresizingMaskIntoConstraints = false
 
         let initialRect = NSRect(x: 0, y: 0, width: 360, height: 420)
-        let panel = NSPanel(
+        let panel = KeyablePanel(
             contentRect: initialRect,
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
@@ -26,7 +33,7 @@ final class PanelController {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.hasShadow = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -78,6 +85,7 @@ final class PanelController {
         store.refresh()
         positionPanel(relativeTo: button)
         panel.orderFrontRegardless()
+        panel.makeKey()
         installEventMonitors()
     }
 
@@ -112,8 +120,10 @@ final class PanelController {
             self?.hide()
         }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard let self else { return event }
+            if self.store.handleKeyDown(event) { return nil }
             if event.keyCode == 53 {
-                self?.hide()
+                self.hide()
                 return nil
             }
             return event

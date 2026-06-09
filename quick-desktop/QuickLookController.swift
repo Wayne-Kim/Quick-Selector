@@ -8,7 +8,12 @@ final class QuickLookController: NSObject, QLPreviewPanelDataSource, QLPreviewPa
     private var items: [URL] = []
 
     func preview(_ url: URL) {
-        items = [url]
+        preview([url])
+    }
+
+    func preview(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        items = urls
         guard let panel = QLPreviewPanel.shared() else { return }
         panel.dataSource = self
         panel.delegate = self

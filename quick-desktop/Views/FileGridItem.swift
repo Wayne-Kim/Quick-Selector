@@ -1,28 +1,34 @@
 import SwiftUI
 
 struct FileGridItem: View {
+    @ObservedObject var store: DesktopStore
     let file: DesktopFile
 
     private static let thumbSize = CGSize(width: 88, height: 88)
 
     @State private var image: NSImage?
     @State private var isHovering = false
+    @FocusState private var renameFieldFocused: Bool
+
+    private var isSelected: Bool { store.isSelected(file) }
+    private var isStarred: Bool { store.isStarred(file) }
+    private var isRenaming: Bool { store.renamingFileID == file.url }
 
     var body: some View {
         VStack(spacing: 6) {
             thumbnail
-            Text(file.name)
-                .font(.caption2)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .multilineTextAlignment(.center)
-                .frame(height: 28, alignment: .top)
+            nameLabel
         }
         .padding(6)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isHovering ? Color.primary.opacity(0.08) : Color.clear)
+                .fill(backgroundFill)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+        )
+        .overlay(alignment: .topTrailing) { starBadge }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .task(id: file.id) {
@@ -33,28 +39,128 @@ struct FileGridItem: View {
         } preview: {
             dragPreview
         }
-        .onTapGesture(count: 2) { openFile() }
-        .contextMenu {
-            Button("Open") { openFile() }
-            Button("Reveal in Finder") { revealInFinder() }
-            Button("Quick Look") { quickLook() }
-            Divider()
-            Button("Copy") { copyToPasteboard() }
-            Divider()
-            Button("Move to Trash", role: .destructive) { moveToTrash() }
+        .onTapGesture(count: 2) { handleOpen() }
+        .onTapGesture(count: 1) { handleClick() }
+        .contextMenu { contextMenuContent }
+    }
+
+    // MARK: - Name / rename field
+
+    @ViewBuilder
+    private var nameLabel: some View {
+        if isRenaming {
+            HStack(spacing: 1) {
+                TextField("", text: $store.renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .focused($renameFieldFocused)
+                    .onSubmit { store.commitRename() }
+                    .onExitCommand { store.cancelRename() }
+                    .onAppear { focusRenameField() }
+                if !store.renameExtension.isEmpty {
+                    Text("." + store.renameExtension)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .frame(height: 28)
+        } else {
+            Text(file.name)
+                .font(.caption2)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+                .frame(height: 28, alignment: .top)
         }
     }
 
-    private func openFile() {
+    // MARK: - Star
+
+    @ViewBuilder
+    private var starBadge: some View {
+        if isStarred || isHovering {
+            Button {
+                store.toggleStar(file)
+            } label: {
+                Image(systemName: isStarred ? "star.fill" : "star")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isStarred ? Color.yellow : Color.secondary)
+                    .padding(3)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help(isStarred ? "Remove star" : "Mark with a star")
+            .padding(4)
+        }
+    }
+
+    private var backgroundFill: Color {
+        if isSelected { return Color.accentColor.opacity(0.18) }
+        if isHovering { return Color.primary.opacity(0.08) }
+        return .clear
+    }
+
+    // MARK: - Interaction
+
+    private func handleClick() {
+        let mods = NSEvent.modifierFlags
+        if mods.contains(.command) {
+            store.toggle(file)
+        } else if mods.contains(.shift) {
+            store.extendSelection(to: file)
+        } else {
+            store.select(file)
+        }
+    }
+
+    private func handleOpen() {
+        store.select(file)
         NSWorkspace.shared.open(file.url)
     }
 
-    private func revealInFinder() {
-        NSWorkspace.shared.activateFileViewerSelecting([file.url])
+    /// Moves keyboard focus into the rename field once it is in the key panel's
+    /// responder chain. Setting `@FocusState` synchronously in `.onAppear` is
+    /// too early, so we assert it on the next run loop and re-assert shortly
+    /// after in case the field editor wasn't ready on the first pass.
+    private func focusRenameField() {
+        DispatchQueue.main.async { renameFieldFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            if store.renamingFileID == file.url { renameFieldFocused = true }
+        }
     }
 
-    private func quickLook() {
-        QuickLookController.shared.preview(file.url)
+    // MARK: - Context menu
+
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        if isSelected && store.selection.count > 1 {
+            let count = store.selection.count
+            Button("Open \(count) Items") { store.openSelection() }
+            Button("Reveal in Finder") { store.revealSelection() }
+            Button("Quick Look") { store.quickLookSelection() }
+            Divider()
+            Button("Copy") { store.copySelection() }
+            Button(store.allSelectionStarred ? "Remove Stars" : "Add Stars") {
+                store.toggleStarForSelection()
+            }
+            Divider()
+            Button("Move \(count) Items to Trash", role: .destructive) {
+                store.moveSelectionToTrash()
+            }
+        } else {
+            Button("Open") { NSWorkspace.shared.open(file.url) }
+            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+            Button("Quick Look") { QuickLookController.shared.preview(file.url) }
+            Button("Rename") { store.beginRename(file) }
+            Divider()
+            Button("Copy") { copyToPasteboard() }
+            Button(isStarred ? "Remove Star" : "Add Star") { store.toggleStar(file) }
+            Divider()
+            Button("Move to Trash", role: .destructive) { store.trash([file.url]) }
+        }
     }
 
     private func copyToPasteboard() {
@@ -63,9 +169,7 @@ struct FileGridItem: View {
         pb.writeObjects([file.url as NSURL])
     }
 
-    private func moveToTrash() {
-        try? FileManager.default.trashItem(at: file.url, resultingItemURL: nil)
-    }
+    // MARK: - Thumbnail
 
     @ViewBuilder
     private var dragPreview: some View {

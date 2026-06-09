@@ -22,7 +22,7 @@ struct ContentView: View {
                 .truncationMode(.middle)
                 .help(store.folderURL.path)
             Spacer()
-            Text("\(store.files.count)")
+            Text(store.selection.isEmpty ? "\(store.files.count)" : "\(store.selection.count) selected")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
             Button {
@@ -59,12 +59,14 @@ struct ContentView: View {
         ScrollView {
             LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 4) {
                 ForEach(store.files) { file in
-                    FileGridItem(file: file)
+                    FileGridItem(store: store, file: file)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
+        .contentShape(Rectangle())
+        .onTapGesture { store.clearSelection() }
     }
 
     private static let columns: [GridItem] = Array(
