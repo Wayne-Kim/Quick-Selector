@@ -12,7 +12,7 @@ final class DesktopFolderObserver {
 
     init(
         url: URL,
-        debounceMilliseconds: Int = 200,
+        debounceMilliseconds: Int = 120,
         queue: DispatchQueue = DispatchQueue(label: "quickdesktop.observer", qos: .utility),
         onChange: @escaping @Sendable () -> Void
     ) {

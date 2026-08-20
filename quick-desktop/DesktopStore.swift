@@ -15,11 +15,10 @@ final class DesktopStore: ObservableObject {
     @Published private(set) var starredPaths: Set<String> = []
     /// The file currently being renamed inline, if any.
     @Published var renamingFileID: URL?
-    /// Edited text bound to the inline rename field — the base name only.
-    @Published var renameText: String = ""
-    /// The renamed file's extension (without the dot); locked so it can't change.
-    /// Empty for directories and extension-less files.
-    @Published private(set) var renameExtension: String = ""
+    /// State of the inline rename field. Deliberately a separate observable
+    /// object: typing changes it many times per second, and only the field
+    /// itself should repaint — not every cell in the grid.
+    let rename = RenameState()
 
     /// Anchor of a shift/range selection; stays put while the focus end moves.
     private var selectionAnchor: URL?
@@ -48,6 +47,8 @@ final class DesktopStore: ObservableObject {
         self.folderURL = folderURL ?? Self.loadPersistedFolder() ?? Self.defaultFolderURL
         self.starredPaths = Set(UserDefaults.standard.stringArray(forKey: Self.starredDefaultsKey) ?? [])
         startObserving()
+        // Load (and prewarm thumbnails) at launch rather than on first open.
+        refresh()
     }
 
     /// `true` when tracking the system Desktop (i.e. no custom folder is set).
@@ -275,8 +276,8 @@ final class DesktopStore: ObservableObject {
         // Lock the extension: only the base name is editable so the file type
         // can't be changed by accident. Directories have no protected extension.
         let ext = file.isDirectory ? "" : file.url.pathExtension
-        renameExtension = ext
-        renameText = ext.isEmpty ? file.name : file.url.deletingPathExtension().lastPathComponent
+        rename.fileExtension = ext
+        rename.text = ext.isEmpty ? file.name : file.url.deletingPathExtension().lastPathComponent
         renamingFileID = file.url
     }
 
@@ -302,9 +303,10 @@ final class DesktopStore: ObservableObject {
             return
         }
         renamingFileID = nil
-        let base = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = rename.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty, !base.contains("/"), !base.contains(":") else { return }
-        let newName = renameExtension.isEmpty ? base : "\(base).\(renameExtension)"
+        let ext = rename.fileExtension
+        let newName = ext.isEmpty ? base : "\(base).\(ext)"
         guard newName != file.name else { return }
         let destination = file.url.deletingLastPathComponent().appendingPathComponent(newName)
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -341,18 +343,28 @@ final class DesktopStore: ObservableObject {
         guard !urls.isEmpty else { return [] }
         var moves: [(original: URL, trashed: URL)] = []
         var failure: String?
+        // Collected first, then applied in one shot: mutating `starredPaths` /
+        // `selection` per file would repaint the grid once per trashed item.
+        var trashedPaths: Set<String> = []
+        var trashedURLs: Set<URL> = []
         for url in urls {
             var resulting: NSURL?
             do {
                 try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
                 if let trashed = resulting { moves.append((original: url, trashed: trashed as URL)) }
-                starredPaths.remove(url.path)
-                selection.remove(url)
+                trashedPaths.insert(url.path)
+                trashedURLs.insert(url)
             } catch {
                 failure = (error as NSError).localizedDescription
             }
         }
-        if !moves.isEmpty { persistStars() }
+        if !starredPaths.isDisjoint(with: trashedPaths) {
+            starredPaths.subtract(trashedPaths)
+            persistStars()
+        }
+        if !selection.isDisjoint(with: trashedURLs) {
+            selection.subtract(trashedURLs)
+        }
         if let failure { lastError = failure; NSSound.beep() }
         return moves
     }
@@ -482,7 +494,7 @@ final class DesktopStore: ObservableObject {
     /// Drops selection / focus / rename state pointing at files that no longer exist.
     private func pruneTransientStateToCurrentFiles() {
         let existing = Set(files.map(\.url))
-        selection.formIntersection(existing)
+        if !selection.isSubset(of: existing) { selection.formIntersection(existing) }
         if let a = selectionAnchor, !existing.contains(a) { selectionAnchor = nil }
         if let f = selectionFocus, !existing.contains(f) { selectionFocus = nil }
         if let r = renamingFileID, !existing.contains(r) { renamingFileID = nil }
@@ -501,31 +513,72 @@ final class DesktopStore: ObservableObject {
         self.observer = observer
     }
 
+    /// Reload in flight, if any. A second request while one is running is
+    /// folded into a single follow-up scan instead of piling up.
+    private var refreshTask: Task<Void, Never>?
+    private var refreshQueued = false
+
     func refresh() {
+        guard refreshTask == nil else {
+            refreshQueued = true
+            return
+        }
         let url = folderURL
-        Task.detached { [weak self] in
-            let result = Self.loadFiles(at: url)
-            await MainActor.run {
-                guard let self else { return }
-                // Ignore results from a folder we've since switched away from.
-                guard self.folderURL == url else { return }
-                switch result {
-                case .success(let files):
-                    self.files = files
-                    self.pruneTransientStateToCurrentFiles()
-                    self.hasAccess = true
-                    self.lastError = nil
-                case .failure(let error):
-                    self.files = []
-                    let ns = error as NSError
-                    if ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoPermissionError || ns.code == 257) {
-                        self.hasAccess = false
-                    }
-                    self.lastError = ns.localizedDescription
+        refreshTask = Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.loadFiles(at: url)
+            }.value
+            guard let self else { return }
+            self.refreshTask = nil
+            defer {
+                if self.refreshQueued {
+                    self.refreshQueued = false
+                    self.refresh()
                 }
             }
+            // Ignore results from a folder we've since switched away from.
+            guard self.folderURL == url else { return }
+            self.apply(result)
         }
     }
+
+    /// Publishes a scan result, touching `@Published` state only where it
+    /// actually differs — every mutation here rebuilds the whole grid, and
+    /// most scans (panel opened, unrelated write in the folder) find nothing
+    /// new at all.
+    private func apply(_ result: Result<[DesktopFile], Error>) {
+        switch result {
+        case .success(let loaded):
+            if files != loaded {
+                files = loaded
+                pruneTransientStateToCurrentFiles()
+            }
+            if !hasAccess { hasAccess = true }
+            if lastError != nil { lastError = nil }
+            prewarmThumbnails()
+        case .failure(let error):
+            if !files.isEmpty { files = [] }
+            let ns = error as NSError
+            if ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoPermissionError || ns.code == 257) {
+                if hasAccess { hasAccess = false }
+            }
+            if lastError != ns.localizedDescription { lastError = ns.localizedDescription }
+        }
+    }
+
+    /// Generates the first screenful of thumbnails ahead of time so the panel
+    /// opens with images rather than filling in after the fact.
+    private func prewarmThumbnails() {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        ThumbnailCache.shared.prewarm(
+            files.prefix(Self.prewarmCount),
+            size: ThumbnailCache.gridSize,
+            scale: scale
+        )
+    }
+
+    /// Roughly one visible page of the 3-column grid.
+    private static let prewarmCount = 15
 
     nonisolated private static func loadFiles(at url: URL) -> Result<[DesktopFile], Error> {
         let fm = FileManager.default
@@ -566,4 +619,15 @@ final class DesktopStore: ObservableObject {
             return .failure(error)
         }
     }
+}
+
+/// The inline rename field's editing state, kept out of `DesktopStore` so that
+/// each keystroke notifies only the text field.
+@MainActor
+final class RenameState: ObservableObject {
+    /// The edited base name (without the extension).
+    @Published var text: String = ""
+    /// The renamed file's extension, without the dot; locked so the file type
+    /// can't be changed by accident. Empty for directories and extension-less files.
+    @Published fileprivate(set) var fileExtension: String = ""
 }

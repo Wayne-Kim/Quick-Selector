@@ -59,7 +59,16 @@ struct ContentView: View {
         ScrollView {
             LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 4) {
                 ForEach(store.files) { file in
-                    FileGridItem(store: store, file: file)
+                    // Flags are resolved here and handed down as values, so
+                    // SwiftUI can skip the cells a change didn't touch.
+                    FileGridItem(
+                        store: store,
+                        file: file,
+                        isSelected: store.selection.contains(file.url),
+                        isStarred: store.isStarred(file),
+                        isRenaming: store.renamingFileID == file.url
+                    )
+                    .equatable()
                 }
             }
             .padding(.horizontal, 8)

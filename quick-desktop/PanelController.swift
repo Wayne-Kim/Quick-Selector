@@ -27,7 +27,9 @@ final class PanelController {
             contentRect: initialRect,
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
-            defer: true
+            // Build the window device now: deferring it just moves the cost to
+            // the first click on the status item.
+            defer: false
         )
         panel.isFloatingPanel = true
         panel.level = .statusBar
@@ -67,6 +69,9 @@ final class PanelController {
             content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         panel.contentView = container
+        // Force the first SwiftUI layout pass at launch so opening the panel
+        // is a matter of ordering an already-rendered view on screen.
+        container.layoutSubtreeIfNeeded()
 
         self.panel = panel
     }

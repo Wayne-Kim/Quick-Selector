@@ -1,18 +1,28 @@
 import SwiftUI
 
-struct FileGridItem: View {
-    @ObservedObject var store: DesktopStore
+struct FileGridItem: View, Equatable {
+    /// The store is held for actions only — the cell deliberately does *not*
+    /// observe it. Everything it renders arrives as a plain value from the
+    /// parent, so a selection change or a keystroke in the rename field
+    /// repaints the cells that actually changed instead of all of them.
+    let store: DesktopStore
     let file: DesktopFile
+    let isSelected: Bool
+    let isStarred: Bool
+    let isRenaming: Bool
 
-    private static let thumbSize = CGSize(width: 88, height: 88)
+    static func == (lhs: FileGridItem, rhs: FileGridItem) -> Bool {
+        lhs.store === rhs.store
+            && lhs.file == rhs.file
+            && lhs.isSelected == rhs.isSelected
+            && lhs.isStarred == rhs.isStarred
+            && lhs.isRenaming == rhs.isRenaming
+    }
+
+    private static let thumbSize = ThumbnailCache.gridSize
 
     @State private var image: NSImage?
     @State private var isHovering = false
-    @FocusState private var renameFieldFocused: Bool
-
-    private var isSelected: Bool { store.isSelected(file) }
-    private var isStarred: Bool { store.isStarred(file) }
-    private var isRenaming: Bool { store.renamingFileID == file.url }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -31,7 +41,7 @@ struct FileGridItem: View {
         .overlay(alignment: .topTrailing) { starBadge }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .task(id: file.id) {
+        .task(id: file) {
             await loadThumbnail()
         }
         .onDrag {
@@ -39,9 +49,12 @@ struct FileGridItem: View {
         } preview: {
             dragPreview
         }
-        .onTapGesture(count: 2) { handleOpen() }
-        .onTapGesture(count: 1) { handleClick() }
-        .contextMenu { contextMenuContent }
+        // Single tap first, double click layered on simultaneously: chaining
+        // two `onTapGesture`s makes the single one wait out the double-click
+        // interval before the selection highlight appears.
+        .onTapGesture { handleClick() }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { handleOpen() })
+        .contextMenu { FileContextMenu(store: store, file: file) }
     }
 
     // MARK: - Name / rename field
@@ -49,24 +62,7 @@ struct FileGridItem: View {
     @ViewBuilder
     private var nameLabel: some View {
         if isRenaming {
-            HStack(spacing: 1) {
-                TextField("", text: $store.renameText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption2)
-                    .lineLimit(1)
-                    .focused($renameFieldFocused)
-                    .onSubmit { store.commitRename() }
-                    .onExitCommand { store.cancelRename() }
-                    .onAppear { focusRenameField() }
-                if !store.renameExtension.isEmpty {
-                    Text("." + store.renameExtension)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-            .frame(height: 28)
+            RenameField(store: store, file: file, rename: store.rename)
         } else {
             Text(file.name)
                 .font(.caption2)
@@ -121,22 +117,114 @@ struct FileGridItem: View {
         NSWorkspace.shared.open(file.url)
     }
 
+    // MARK: - Thumbnail
+
+    /// What to draw right now: the generated thumbnail if we have one (from
+    /// this cell's own load or from the cache a prewarm filled), otherwise a
+    /// generic type icon. Never a spinner — an animated indeterminate
+    /// `ProgressView` per pending cell is a lot of CoreAnimation work for
+    /// something that is on screen for a fraction of a second.
+    private var resolvedImage: (image: NSImage, isPlaceholder: Bool) {
+        if let image { return (image, false) }
+        if let hit = ThumbnailCache.shared.cached(for: file, size: Self.thumbSize) {
+            return (hit, false)
+        }
+        return (ThumbnailCache.shared.placeholder(for: file), true)
+    }
+
+    private var dragPreview: some View {
+        let resolved = resolvedImage
+        return Image(nsImage: resolved.image)
+            .resizable()
+            .interpolation(.medium)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: Self.thumbSize.width, height: Self.thumbSize.height)
+    }
+
+    private var thumbnail: some View {
+        let resolved = resolvedImage
+        return ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.primary.opacity(0.05))
+            Image(nsImage: resolved.image)
+                .resizable()
+                .interpolation(.medium)
+                .aspectRatio(contentMode: .fit)
+                .padding(resolved.isPlaceholder ? 20 : 2)
+                .opacity(resolved.isPlaceholder ? 0.65 : 1)
+        }
+        .frame(width: Self.thumbSize.width, height: Self.thumbSize.height)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    private func loadThumbnail() async {
+        if let cached = ThumbnailCache.shared.cached(for: file, size: Self.thumbSize) {
+            image = cached
+            return
+        }
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let result = await ThumbnailCache.shared.thumbnail(for: file, size: Self.thumbSize, scale: scale)
+        image = result
+    }
+}
+
+// MARK: - Rename field
+
+/// The inline rename editor. Split out so that observing `RenameState` — which
+/// changes on every keystroke — invalidates this field and nothing else.
+private struct RenameField: View {
+    let store: DesktopStore
+    let file: DesktopFile
+    @ObservedObject var rename: RenameState
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 1) {
+            TextField("", text: $rename.text)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption2)
+                .lineLimit(1)
+                .focused($isFocused)
+                .onSubmit { store.commitRename() }
+                .onExitCommand { store.cancelRename() }
+                .onAppear { focusField() }
+            if !rename.fileExtension.isEmpty {
+                Text("." + rename.fileExtension)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        .frame(height: 28)
+    }
+
     /// Moves keyboard focus into the rename field once it is in the key panel's
     /// responder chain. Setting `@FocusState` synchronously in `.onAppear` is
     /// too early, so we assert it on the next run loop and re-assert shortly
     /// after in case the field editor wasn't ready on the first pass.
-    private func focusRenameField() {
-        DispatchQueue.main.async { renameFieldFocused = true }
+    private func focusField() {
+        DispatchQueue.main.async { isFocused = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            if store.renamingFileID == file.url { renameFieldFocused = true }
+            if store.renamingFileID == file.url { isFocused = true }
         }
     }
+}
 
-    // MARK: - Context menu
+// MARK: - Context menu
 
-    @ViewBuilder
-    private var contextMenuContent: some View {
-        if isSelected && store.selection.count > 1 {
+/// Built only when the menu is actually opened, so reading live selection state
+/// here costs nothing while the grid is just sitting there.
+private struct FileContextMenu: View {
+    @ObservedObject var store: DesktopStore
+    let file: DesktopFile
+
+    var body: some View {
+        if store.isSelected(file) && store.selection.count > 1 {
             let count = store.selection.count
             Button("Open \(count) Items") { store.openSelection() }
             Button("Reveal in Finder") { store.revealSelection() }
@@ -157,7 +245,7 @@ struct FileGridItem: View {
             Button("Rename") { store.beginRename(file) }
             Divider()
             Button("Copy") { copyToPasteboard() }
-            Button(isStarred ? "Remove Star" : "Add Star") { store.toggleStar(file) }
+            Button(store.isStarred(file) ? "Remove Star" : "Add Star") { store.toggleStar(file) }
             Divider()
             Button("Move to Trash", role: .destructive) { store.trash([file.url]) }
         }
@@ -167,56 +255,5 @@ struct FileGridItem: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([file.url as NSURL])
-    }
-
-    // MARK: - Thumbnail
-
-    @ViewBuilder
-    private var dragPreview: some View {
-        if let nsImage = image {
-            Image(nsImage: nsImage)
-                .resizable()
-                .interpolation(.medium)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: Self.thumbSize.width, height: Self.thumbSize.height)
-        } else {
-            Image(systemName: file.isDirectory ? "folder.fill" : "doc.fill")
-                .font(.system(size: 48))
-                .frame(width: Self.thumbSize.width, height: Self.thumbSize.height)
-        }
-    }
-
-    @ViewBuilder
-    private var thumbnail: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(0.05))
-            if let nsImage = image {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .interpolation(.medium)
-                    .aspectRatio(contentMode: .fit)
-                    .padding(2)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-                    .opacity(0.5)
-            }
-        }
-        .frame(width: Self.thumbSize.width, height: Self.thumbSize.height)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-        )
-    }
-
-    private func loadThumbnail() async {
-        if let cached = ThumbnailCache.shared.cached(for: file, size: Self.thumbSize) {
-            image = cached
-            return
-        }
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        let result = await ThumbnailCache.shared.thumbnail(for: file, size: Self.thumbSize, scale: scale)
-        image = result
     }
 }
