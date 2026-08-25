@@ -12,14 +12,22 @@ private final class KeyablePanel: NSPanel {
 final class PanelController {
     private let panel: NSPanel
     let store: DesktopStore
+    let notes: NoteStore
+    private let panelState: PanelState
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
 
     init() {
         let store = DesktopStore()
+        let notes = NoteStore()
+        let panelState = PanelState()
         self.store = store
+        self.notes = notes
+        self.panelState = panelState
 
-        let content = NSHostingView(rootView: ContentView(store: store))
+        let content = NSHostingView(
+            rootView: ContentView(store: store, notes: notes, panel: panelState)
+        )
         content.translatesAutoresizingMaskIntoConstraints = false
 
         let initialRect = NSRect(x: 0, y: 0, width: 360, height: 420)
@@ -78,6 +86,11 @@ final class PanelController {
 
     var isVisible: Bool { panel.isVisible }
 
+    /// Writes out an in-progress note edit. Called on quit.
+    func flushPendingEdits() {
+        notes.flush()
+    }
+
     func toggle(relativeTo button: NSStatusBarButton?) {
         if panel.isVisible {
             hide()
@@ -95,6 +108,9 @@ final class PanelController {
     }
 
     func hide() {
+        // The editor's `onDisappear` doesn't reliably fire when the panel is
+        // merely ordered out, so flush the in-progress note here.
+        notes.commitDraft()
         removeEventMonitors()
         panel.orderOut(nil)
     }
@@ -126,7 +142,14 @@ final class PanelController {
         }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self else { return event }
-            if self.store.handleKeyDown(event) { return nil }
+            // Only the visible half gets to claim keys — otherwise typing a
+            // note would trash the selected file on Delete.
+            switch self.panelState.mode {
+            case .files:
+                if self.store.handleKeyDown(event) { return nil }
+            case .notes:
+                if self.notes.handleKeyDown(event) { return nil }
+            }
             if event.keyCode == 53 {
                 self.hide()
                 return nil

@@ -19,6 +19,11 @@ final class StatusBarController {
         }
     }
 
+    /// Writes out an in-progress note edit. Called on quit.
+    func flushPendingEdits() {
+        panelController.flushPendingEdits()
+    }
+
     @objc private func handleClick(_ sender: NSStatusBarButton) {
         let isRight = NSApp.currentEvent?.type == .rightMouseUp
         if isRight {

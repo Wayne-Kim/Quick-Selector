@@ -2,17 +2,76 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var store: DesktopStore
+    @ObservedObject var notes: NoteStore
+    @ObservedObject var panel: PanelState
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            modePicker
             Divider()
-            body(for: store)
+            content
         }
         .frame(width: 360, height: 420)
+        .onChange(of: panel.mode) { _ in
+            // Leaving a half of the panel shouldn't silently drop what was
+            // being typed in it.
+            if store.renamingFileID != nil { store.commitRename() }
+            notes.commitDraft()
+        }
     }
 
+    @ViewBuilder
     private var header: some View {
+        switch panel.mode {
+        case .files: filesHeader
+        case .notes: notesHeader
+        }
+    }
+
+    private var modePicker: some View {
+        Picker("", selection: $panel.mode) {
+            ForEach(PanelMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch panel.mode {
+        case .files: body(for: store)
+        case .notes: NotesView(store: notes)
+        }
+    }
+
+    private var notesHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "note.text")
+                .foregroundStyle(.tint)
+            Text("Notes")
+                .font(.headline)
+            Spacer()
+            Text("\(notes.notes.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Button {
+                notes.create()
+            } label: {
+                Image(systemName: "square.and.pencil")
+            }
+            .buttonStyle(.borderless)
+            .help("New note (⌘N)")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var filesHeader: some View {
         HStack(spacing: 8) {
             Image(systemName: "square.stack.3d.up.fill")
                 .foregroundStyle(.tint)
