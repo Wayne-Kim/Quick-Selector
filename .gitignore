@@ -27,6 +27,9 @@ tools/sparkle/
 .env
 .env.*
 !.env.example
+# Local secrets file used by the release pipeline (root-anchored so a future
+# tools/env/ directory is unaffected).
+/env
 *.p12
 AuthKey_*.p8
 
