@@ -1,14 +1,14 @@
 import SwiftUI
 
 @MainActor
-func resolvedThumbnail(for file: DesktopFile, size: CGSize, loaded: NSImage?) -> (image: NSImage, isPlaceholder: Bool) {
+func resolvedThumbnail(for file: TrackedFile, size: CGSize, loaded: NSImage?) -> (image: NSImage, isPlaceholder: Bool) {
     if let loaded { return (loaded, false) }
     if let hit = ThumbnailCache.shared.cached(for: file, size: size) { return (hit, false) }
     return (ThumbnailCache.shared.placeholder(for: file), true)
 }
 
 @MainActor
-func loadThumbnail(for file: DesktopFile, size: CGSize) async -> NSImage {
+func loadThumbnail(for file: TrackedFile, size: CGSize) async -> NSImage {
     if let cached = ThumbnailCache.shared.cached(for: file, size: size) { return cached }
     let scale = NSScreen.main?.backingScaleFactor ?? 2
     return await ThumbnailCache.shared.thumbnail(for: file, size: size, scale: scale)
@@ -27,8 +27,8 @@ struct FolderDot: View {
 }
 
 struct StarBadge: View {
-    let store: DesktopStore
-    let file: DesktopFile
+    let store: FileStore
+    let file: TrackedFile
     let isStarred: Bool
     var size: CGFloat = 11
     var showsBackground: Bool = true
@@ -52,7 +52,7 @@ struct StarBadge: View {
 
 /// Resolves the click modifiers the grid and the list both interpret the same way.
 @MainActor
-func applyClick(_ store: DesktopStore, to file: DesktopFile) {
+func applyClick(_ store: FileStore, to file: TrackedFile) {
     let modifiers = NSEvent.modifierFlags
     if modifiers.contains(.command) {
         store.toggle(file)
@@ -66,8 +66,8 @@ func applyClick(_ store: DesktopStore, to file: DesktopFile) {
 /// The inline rename editor. Split out so that observing `RenameState` - which
 /// changes on every keystroke - invalidates this field and nothing else.
 struct RenameField: View {
-    let store: DesktopStore
-    let file: DesktopFile
+    let store: FileStore
+    let file: TrackedFile
     @ObservedObject var rename: RenameState
     var height: CGFloat = 28
 
@@ -109,8 +109,8 @@ struct RenameField: View {
 /// Built only when the menu is actually opened, so reading live selection state
 /// here costs nothing while the grid is just sitting there.
 struct FileContextMenu: View {
-    @ObservedObject var store: DesktopStore
-    let file: DesktopFile
+    @ObservedObject var store: FileStore
+    let file: TrackedFile
 
     var body: some View {
         if store.isSelected(file) && store.selection.count > 1 {

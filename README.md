@@ -1,7 +1,7 @@
-# Quick Desktop
+# Quick Selector
 
 <p align="center">
-  <img src="docs/images/icon.png" width="160" alt="Quick Desktop icon"/>
+  <img src="docs/images/icon.png" width="160" alt="Quick Selector icon"/>
 </p>
 
 <p align="center">
@@ -22,9 +22,9 @@
 
 화면에 여러 창을 동시에 띄워 쓰다 보면, 스크린샷을 찍어도 그 파일이 데스크탑 위에 깔려서 안 보이는 경우가 많습니다. 마우스로 일일이 창을 치우고 데스크탑까지 내려가서 파일을 집어 올리는 일이 번거롭죠.
 
-**Quick Desktop**은 메뉴바 아이콘 한 번으로 데스크탑 파일을 썸네일 그리드로 보여주고, 거기서 바로 다른 앱(브라우저의 GitHub PR 첨부창, Slack 입력창, Finder 등)으로 드래그할 수 있게 해 줍니다.
+**Quick Selector**는 메뉴바 아이콘 한 번으로 데스크탑 파일을 썸네일 그리드로 보여주고, 거기서 바로 다른 앱(브라우저의 GitHub PR 첨부창, Slack 입력창, Finder 등)으로 드래그할 수 있게 해 줍니다.
 
-![Quick Desktop in action](docs/images/panel.png)
+![Quick Selector in action](docs/images/panel.png)
 
 ## 주요 기능
 
@@ -41,11 +41,11 @@
 
 ## 설치
 
-[최신 릴리즈 페이지](https://github.com/Wayne-Kim/quick-desktop/releases/latest)에서 `quick-desktop-x.y.z.dmg`를 받아:
+[최신 릴리즈 페이지](https://github.com/Wayne-Kim/quick-desktop/releases/latest)에서 `quick-selector-x.y.z.dmg`를 받아:
 
 1. DMG를 더블클릭해서 마운트
-2. `Quick Desktop.app`을 `Applications` 폴더로 드래그
-3. `Applications`에서 `Quick Desktop`을 실행
+2. `quick-selector.app`을 `Applications` 폴더로 드래그
+3. `Applications`에서 `Quick Selector`를 실행
 4. 최초 실행 시 **데스크탑 접근 허용** 다이얼로그가 뜨면 **허용**
 
 > 앱은 Apple에 공증(notarized)되어 있어 Gatekeeper 경고 없이 바로 실행됩니다.
@@ -97,7 +97,7 @@ mkdir -p tools/sparkle && curl -L \
 
 # 5. 프로젝트 생성 & 빌드
 ./bin/gen-project.sh         # project.yml + .xcodeproj 생성
-open quick-desktop.xcodeproj # Xcode에서 열기
+open quick-selector.xcodeproj # Xcode에서 열기
 ```
 
 ### 릴리즈

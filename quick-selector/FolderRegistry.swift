@@ -36,7 +36,7 @@ final class FolderRegistry: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.canCreateDirectories = false
         panel.prompt = "Track"
-        panel.message = "Choose folders for Quick Desktop to track."
+        panel.message = "Choose folders for Quick Selector to track."
         panel.directoryURL = folders.last?.url ?? Self.desktopURL
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK else { return }

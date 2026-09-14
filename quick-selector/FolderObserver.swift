@@ -1,6 +1,6 @@
 import Foundation
 
-final class DesktopFolderObserver {
+final class FolderObserver {
     private let url: URL
     private let queue: DispatchQueue
     private let debounceInterval: DispatchTimeInterval
@@ -13,7 +13,7 @@ final class DesktopFolderObserver {
     init(
         url: URL,
         debounceMilliseconds: Int = 120,
-        queue: DispatchQueue = DispatchQueue(label: "quickdesktop.observer", qos: .utility),
+        queue: DispatchQueue = DispatchQueue(label: "quickselector.observer", qos: .utility),
         onChange: @escaping @Sendable () -> Void
     ) {
         self.url = url
@@ -30,7 +30,7 @@ final class DesktopFolderObserver {
         stop()
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else {
-            NSLog("[quick-desktop] observer open() failed for \(url.path), errno=\(errno)")
+            NSLog("[quick-selector] observer open() failed for \(url.path), errno=\(errno)")
             return
         }
         fileDescriptor = fd

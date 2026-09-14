@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release pipeline for quick-desktop.
+# Release pipeline for quick-selector.
 #   Usage: ./release.sh <version>     e.g. ./release.sh 0.1.0
 # Produces a signed/notarized/stapled DMG, signs it with Sparkle, regenerates
 # appcast.xml, and creates a GitHub Release with both files attached.
@@ -36,7 +36,7 @@ for var in "${REQUIRED[@]}"; do
   fi
 done
 
-APP_NAME="quick-desktop"
+APP_NAME="quick-selector"
 SCHEME="$APP_NAME"
 PROJECT="$APP_NAME.xcodeproj"
 DOWNLOAD_URL_BASE="https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download"
@@ -108,7 +108,7 @@ mkdir -p "$DMG_STAGE"
 cp -R "$APP_PATH" "$DMG_STAGE/"
 ln -s /Applications "$DMG_STAGE/Applications"
 hdiutil create \
-  -volname "Quick Desktop" \
+  -volname "Quick Selector" \
   -srcfolder "$DMG_STAGE" \
   -ov \
   -format UDZO \
@@ -149,9 +149,9 @@ cat >"$APPCAST_PATH" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Quick Desktop</title>
+    <title>Quick Selector</title>
     <link>$APPCAST_URL</link>
-    <description>Updates for Quick Desktop</description>
+    <description>Updates for Quick Selector</description>
     <language>en</language>
     <item>
       <title>Version $VERSION</title>
@@ -206,7 +206,7 @@ if gh release view "$TAG" --repo "$GITHUB_OWNER/$GITHUB_REPO" >/dev/null 2>&1; t
 fi
 gh release create "$TAG" \
   --repo "$GITHUB_OWNER/$GITHUB_REPO" \
-  --title "Quick Desktop $VERSION" \
+  --title "Quick Selector $VERSION" \
   --notes "Release $VERSION" \
   "$DMG_PATH" \
   "$APPCAST_PATH"

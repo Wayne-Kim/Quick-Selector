@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct FileListView: View {
-    @ObservedObject var store: DesktopStore
+    @ObservedObject var store: FileStore
     @ObservedObject var options: DisplayOptions
 
     var body: some View {
@@ -108,7 +108,7 @@ struct FileListView: View {
         )
     }
 
-    private func metaText(for file: DesktopFile) -> String {
+    private func metaText(for file: TrackedFile) -> String {
         switch options.sortKey {
         case .size:
             return file.isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)

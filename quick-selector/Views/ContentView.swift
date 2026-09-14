@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @ObservedObject var store: DesktopStore
+    @ObservedObject var store: FileStore
     @ObservedObject var registry: FolderRegistry
     @ObservedObject var options: DisplayOptions
     @ObservedObject var notes: NoteStore

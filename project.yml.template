@@ -1,4 +1,4 @@
-name: quick-desktop
+name: quick-selector
 options:
   bundleIdPrefix: ${APPLE_BUNDLE_ID}
   deploymentTarget:
@@ -20,29 +20,29 @@ packages:
     from: 2.9.0
 
 targets:
-  quick-desktop:
+  quick-selector:
     type: application
     platform: macOS
     sources:
-      - path: quick-desktop
+      - path: quick-selector
     dependencies:
       - package: Sparkle
         product: Sparkle
     info:
-      path: quick-desktop/Info.plist
+      path: quick-selector/Info.plist
       properties:
         CFBundleName: $(PRODUCT_NAME)
-        CFBundleDisplayName: Quick Desktop
+        CFBundleDisplayName: Quick Selector
         CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
         CFBundleShortVersionString: "${APP_VERSION}"
         CFBundleVersion: "${APP_BUILD}"
         CFBundlePackageType: APPL
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true
-        NSDesktopFolderUsageDescription: "Quick Desktop reads files from your Desktop so you can drag them from the menu bar."
-        NSDocumentsFolderUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
-        NSDownloadsFolderUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
-        NSRemovableVolumesUsageDescription: "Quick Desktop reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSDesktopFolderUsageDescription: "Quick Selector reads files from your Desktop so you can drag them from the menu bar."
+        NSDocumentsFolderUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSDownloadsFolderUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSRemovableVolumesUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
         NSHighResolutionCapable: true
         SUFeedURL: "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/appcast.xml"
         SUPublicEDKey: "${SPARKLE_PUBLIC_KEY}"
@@ -51,12 +51,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ${APPLE_BUNDLE_ID}
-        PRODUCT_NAME: quick-desktop
+        PRODUCT_NAME: quick-selector
         GENERATE_INFOPLIST_FILE: NO
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
-        CODE_SIGN_ENTITLEMENTS: quick-desktop/quick-desktop.entitlements
+        CODE_SIGN_ENTITLEMENTS: quick-selector/quick-selector.entitlements
       configs:
         Release:
           CODE_SIGN_STYLE: Manual

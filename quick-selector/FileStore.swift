@@ -6,7 +6,7 @@ import AppKit
 /// folder when the panel is grouped by folder.
 struct FileSection: Identifiable, Equatable {
     let folder: TrackedFolder?
-    let files: [DesktopFile]
+    let files: [TrackedFile]
 
     var id: String { folder?.path ?? "all" }
 }
@@ -17,11 +17,11 @@ struct FolderLoadFailure: Equatable {
 }
 
 @MainActor
-final class DesktopStore: ObservableObject {
+final class FileStore: ObservableObject {
     @Published private(set) var sections: [FileSection] = []
     /// Every file in display order, flattened across sections. Selection and
     /// keyboard navigation work off this order.
-    @Published private(set) var files: [DesktopFile] = []
+    @Published private(set) var files: [TrackedFile] = []
     @Published private(set) var failures: [String: FolderLoadFailure] = [:]
     @Published private(set) var lastError: String?
 
@@ -47,8 +47,8 @@ final class DesktopStore: ObservableObject {
     /// Undo stack for reversible file operations (Trash / Rename).
     private let undoManager = UndoManager()
 
-    private var scans: [String: [DesktopFile]] = [:]
-    private var observers: [String: DesktopFolderObserver] = [:]
+    private var scans: [String: [TrackedFile]] = [:]
+    private var observers: [String: FolderObserver] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var refreshQueued: Set<String> = []
     private var cancellables: Set<AnyCancellable> = []
@@ -117,13 +117,13 @@ final class DesktopStore: ObservableObject {
 
     // MARK: - Selection
 
-    func isSelected(_ file: DesktopFile) -> Bool { selection.contains(file.url) }
+    func isSelected(_ file: TrackedFile) -> Bool { selection.contains(file.url) }
 
     /// Selected files in current display order (so actions respect the on-screen order).
     var orderedSelectionURLs: [URL] { files.filter { selection.contains($0.url) }.map(\.url) }
 
     /// Replaces the selection with a single file and resets the range anchor.
-    func select(_ file: DesktopFile) {
+    func select(_ file: TrackedFile) {
         commitRenameIfNeeded()
         selection = [file.url]
         selectionAnchor = file.url
@@ -131,7 +131,7 @@ final class DesktopStore: ObservableObject {
     }
 
     /// Adds/removes a single file from the selection (⌘-click).
-    func toggle(_ file: DesktopFile) {
+    func toggle(_ file: TrackedFile) {
         commitRenameIfNeeded()
         if selection.contains(file.url) {
             selection.remove(file.url)
@@ -143,7 +143,7 @@ final class DesktopStore: ObservableObject {
     }
 
     /// Selects the contiguous range, in display order, from the anchor to `file` (⇧-click).
-    func extendSelection(to file: DesktopFile) {
+    func extendSelection(to file: TrackedFile) {
         commitRenameIfNeeded()
         let anchorURL = selectionAnchor ?? selectionFocus ?? selection.first ?? file.url
         guard let a = files.firstIndex(where: { $0.url == anchorURL }),
@@ -263,14 +263,14 @@ final class DesktopStore: ObservableObject {
 
     // MARK: - Stars
 
-    func isStarred(_ file: DesktopFile) -> Bool { starredPaths.contains(file.url.path) }
+    func isStarred(_ file: TrackedFile) -> Bool { starredPaths.contains(file.url.path) }
 
     /// `true` when every selected file is already starred (drives the toggle's label).
     var allSelectionStarred: Bool {
         !selection.isEmpty && selection.allSatisfy { starredPaths.contains($0.path) }
     }
 
-    func toggleStar(_ file: DesktopFile) {
+    func toggleStar(_ file: TrackedFile) {
         if starredPaths.contains(file.url.path) {
             starredPaths.remove(file.url.path)
         } else {
@@ -295,7 +295,7 @@ final class DesktopStore: ObservableObject {
 
     // MARK: - Rename
 
-    func beginRename(_ file: DesktopFile) {
+    func beginRename(_ file: TrackedFile) {
         commitRenameIfNeeded()
         selection = [file.url]
         selectionAnchor = file.url
@@ -531,7 +531,7 @@ final class DesktopStore: ObservableObject {
 
     private func startObserving(_ path: String) {
         observers[path]?.stop()
-        let observer = DesktopFolderObserver(url: URL(fileURLWithPath: path)) { [weak self] in
+        let observer = FolderObserver(url: URL(fileURLWithPath: path)) { [weak self] in
             Task { @MainActor in
                 self?.refreshFolder(path)
             }
@@ -579,7 +579,7 @@ final class DesktopStore: ObservableObject {
         }
     }
 
-    private func apply(_ result: Result<[DesktopFile], Error>, for path: String) {
+    private func apply(_ result: Result<[TrackedFile], Error>, for path: String) {
         switch result {
         case .success(let loaded):
             if scans[path] != loaded { scans[path] = loaded }
@@ -622,11 +622,11 @@ final class DesktopStore: ObservableObject {
         }
     }
 
-    private func sorted(_ items: [DesktopFile]) -> [DesktopFile] {
+    private func sorted(_ items: [TrackedFile]) -> [TrackedFile] {
         items.sorted { isOrderedBefore($0, $1) }
     }
 
-    private func isOrderedBefore(_ lhs: DesktopFile, _ rhs: DesktopFile) -> Bool {
+    private func isOrderedBefore(_ lhs: TrackedFile, _ rhs: TrackedFile) -> Bool {
         switch options.sortKey {
         case .dateModified where lhs.modifiedAt != rhs.modifiedAt:
             return inChosenOrder(lhs.modifiedAt < rhs.modifiedAt)
@@ -661,7 +661,7 @@ final class DesktopStore: ObservableObject {
         )
     }
 
-    nonisolated private static func loadFiles(at url: URL) -> Result<[DesktopFile], Error> {
+    nonisolated private static func loadFiles(at url: URL) -> Result<[TrackedFile], Error> {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [
             .contentModificationDateKey,
@@ -677,7 +677,7 @@ final class DesktopStore: ObservableObject {
                 includingPropertiesForKeys: keys,
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             )
-            var items: [DesktopFile] = []
+            var items: [TrackedFile] = []
             items.reserveCapacity(urls.count)
             for fileURL in urls {
                 let name = fileURL.lastPathComponent
@@ -687,7 +687,7 @@ final class DesktopStore: ObservableObject {
                 let mtime = values?.contentModificationDate ?? .distantPast
                 let size = Int64(values?.fileSize ?? 0)
                 let isDir = values?.isDirectory ?? false
-                items.append(DesktopFile(
+                items.append(TrackedFile(
                     url: fileURL,
                     name: name,
                     modifiedAt: mtime,
@@ -703,7 +703,7 @@ final class DesktopStore: ObservableObject {
     }
 }
 
-/// The inline rename field's editing state, kept out of `DesktopStore` so that
+/// The inline rename field's editing state, kept out of `FileStore` so that
 /// each keystroke notifies only the text field.
 @MainActor
 final class RenameState: ObservableObject {

@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct FileRow: View, Equatable {
-    let store: DesktopStore
-    let file: DesktopFile
+    let store: FileStore
+    let file: TrackedFile
     let folderColor: Color?
     let isSelected: Bool
     let isStarred: Bool

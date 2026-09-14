@@ -15,7 +15,7 @@ enum LoginItemController {
                 try SMAppService.mainApp.register()
             }
         } catch {
-            NSLog("[quick-desktop] login item toggle failed: \(error.localizedDescription)")
+            NSLog("[quick-selector] login item toggle failed: \(error.localizedDescription)")
         }
     }
 }

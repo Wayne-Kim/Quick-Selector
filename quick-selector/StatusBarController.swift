@@ -10,7 +10,7 @@ final class StatusBarController {
         panelController = PanelController()
 
         if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Quick Desktop")
+            let image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Quick Selector")
             image?.isTemplate = true
             button.image = image
             button.target = self
@@ -68,7 +68,7 @@ final class StatusBarController {
         about.isEnabled = false
         menu.addItem(about)
 
-        let quit = NSMenuItem(title: "Quit Quick Desktop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Quick Selector", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         statusItem.menu = menu
@@ -80,7 +80,7 @@ final class StatusBarController {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Quick Desktop \(version) (\(build))"
+        return "Quick Selector \(version) (\(build))"
     }
 
     /// Lists the tracked folders directly when there is only one, and behind a

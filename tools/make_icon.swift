@@ -2,7 +2,7 @@
 import AppKit
 
 let outputPath = CommandLine.arguments.dropFirst().first
-    ?? "quick-desktop/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
+    ?? "quick-selector/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 
 let size: CGFloat = 1024
 let cornerRadius: CGFloat = size * 0.2237

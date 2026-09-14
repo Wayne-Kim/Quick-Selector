@@ -24,13 +24,13 @@ final class ThumbnailCache {
     /// type, then reused by every cell of that type.
     private var typeIcons: [String: NSImage] = [:]
 
-    func cached(for file: DesktopFile, size: CGSize) -> NSImage? {
+    func cached(for file: TrackedFile, size: CGSize) -> NSImage? {
         cache.object(forKey: key(for: file, size: size))
     }
 
     /// The stand-in shown until the real thumbnail arrives. Cheap enough to
     /// call while building a view: no disk access, no QuickLook round trip.
-    func placeholder(for file: DesktopFile) -> NSImage {
+    func placeholder(for file: TrackedFile) -> NSImage {
         let typeKey = file.isDirectory ? "public.folder" : file.url.pathExtension.lowercased()
         if let hit = typeIcons[typeKey] { return hit }
         let type = file.isDirectory ? UTType.folder : (UTType(filenameExtension: typeKey) ?? .data)
@@ -39,7 +39,7 @@ final class ThumbnailCache {
         return icon
     }
 
-    func thumbnail(for file: DesktopFile, size: CGSize, scale: CGFloat) async -> NSImage {
+    func thumbnail(for file: TrackedFile, size: CGSize, scale: CGFloat) async -> NSImage {
         let key = key(for: file, size: size)
         if let hit = cache.object(forKey: key) {
             return hit
@@ -72,7 +72,7 @@ final class ThumbnailCache {
 
     /// Starts generating thumbnails the grid is about to need, so the panel
     /// opens with images already in the cache instead of empty tiles.
-    func prewarm(_ files: some Sequence<DesktopFile>, size: CGSize, scale: CGFloat) {
+    func prewarm(_ files: some Sequence<TrackedFile>, size: CGSize, scale: CGFloat) {
         for file in files {
             let key = key(for: file, size: size)
             guard cache.object(forKey: key) == nil, inFlight[key] == nil else { continue }
@@ -80,7 +80,7 @@ final class ThumbnailCache {
         }
     }
 
-    private func key(for file: DesktopFile, size: CGSize) -> NSString {
+    private func key(for file: TrackedFile, size: CGSize) -> NSString {
         let mtime = Int64(file.modifiedAt.timeIntervalSince1970)
         return "\(file.url.path)@\(mtime)#\(Int(size.width))x\(Int(size.height))" as NSString
     }

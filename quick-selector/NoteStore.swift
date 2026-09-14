@@ -145,6 +145,7 @@ final class NoteStore: ObservableObject {
     private static var storeURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSString("~/Library/Application Support").expandingTildeInPath)
+        // Kept under the old app name so notes written before the rename still load.
         let directory = base.appendingPathComponent("quick-desktop", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("notes.json")

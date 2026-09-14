@@ -5,8 +5,8 @@ struct FileGridItem: View, Equatable {
     /// observe it. Everything it renders arrives as a plain value from the
     /// parent, so a selection change or a keystroke in the rename field
     /// repaints the cells that actually changed instead of all of them.
-    let store: DesktopStore
-    let file: DesktopFile
+    let store: FileStore
+    let file: TrackedFile
     let style: FileViewStyle
     let folderColor: Color?
     let isSelected: Bool

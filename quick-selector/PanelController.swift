@@ -11,7 +11,7 @@ private final class KeyablePanel: NSPanel {
 @MainActor
 final class PanelController {
     private let panel: NSPanel
-    let store: DesktopStore
+    let store: FileStore
     let registry: FolderRegistry
     let options: DisplayOptions
     let notes: NoteStore
@@ -22,7 +22,7 @@ final class PanelController {
     init() {
         let registry = FolderRegistry()
         let options = DisplayOptions()
-        let store = DesktopStore(registry: registry, options: options)
+        let store = FileStore(registry: registry, options: options)
         let notes = NoteStore()
         let panelState = PanelState()
         self.registry = registry

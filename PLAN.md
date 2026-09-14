@@ -1,4 +1,4 @@
-# quick-desktop 구현 계획서
+# quick-selector 구현 계획서
 
 ## 1. 목표
 
@@ -124,11 +124,11 @@ struct DesktopFile: Identifiable, Hashable {
 ## 5. 프로젝트 구조
 
 ```
-quick-desktop/
+quick-selector/
 ├── PLAN.md                          (본 문서)
-├── quick-desktop.xcodeproj/
-└── quick-desktop/
-    ├── quick_desktopApp.swift       # @main, AppDelegate 위임
+├── quick-selector.xcodeproj/
+└── quick-selector/
+    ├── quick_selectorApp.swift       # @main, AppDelegate 위임
     ├── AppDelegate.swift            # 상태바·패널 lifecycle
     ├── StatusBarController.swift    # NSStatusItem 래퍼
     ├── PanelController.swift        # NSPanel 토글·위치 계산

@@ -1,6 +1,6 @@
 import Foundation
 
-struct DesktopFile: Identifiable, Hashable {
+struct TrackedFile: Identifiable, Hashable {
     let url: URL
     let name: String
     let modifiedAt: Date
