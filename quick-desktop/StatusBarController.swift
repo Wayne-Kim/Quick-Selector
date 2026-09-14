@@ -35,18 +35,17 @@ final class StatusBarController {
 
     private func showMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false
 
-        let openFolder = NSMenuItem(title: "Open Folder in Finder", action: #selector(openFolderInFinder), keyEquivalent: "")
-        openFolder.target = self
-        menu.addItem(openFolder)
+        addOpenInFinderItems(to: menu)
 
-        let chooseFolder = NSMenuItem(title: "Choose Folder to Track…", action: #selector(chooseFolder), keyEquivalent: "")
-        chooseFolder.target = self
-        menu.addItem(chooseFolder)
+        let addFolder = NSMenuItem(title: "Add Folder to Track...", action: #selector(addFolder), keyEquivalent: "")
+        addFolder.target = self
+        menu.addItem(addFolder)
 
-        let resetFolder = NSMenuItem(title: "Reset to Desktop", action: #selector(resetFolder), keyEquivalent: "")
+        let resetFolder = NSMenuItem(title: "Reset to Desktop Only", action: #selector(resetFolder), keyEquivalent: "")
         resetFolder.target = self
-        resetFolder.isEnabled = !panelController.store.isTrackingDesktop
+        resetFolder.isEnabled = !panelController.registry.isDesktopOnly
         menu.addItem(resetFolder)
 
         menu.addItem(.separator())
@@ -84,16 +83,42 @@ final class StatusBarController {
         return "Quick Desktop \(version) (\(build))"
     }
 
-    @objc private func openFolderInFinder() {
-        NSWorkspace.shared.open(panelController.store.folderURL)
+    /// Lists the tracked folders directly when there is only one, and behind a
+    /// submenu when there are several.
+    private func addOpenInFinderItems(to menu: NSMenu) {
+        let folders = panelController.registry.folders
+        guard !folders.isEmpty else { return }
+        if folders.count == 1, let folder = folders.first {
+            menu.addItem(openItem(for: folder, title: "Open \(folder.name) in Finder"))
+            return
+        }
+        let parent = NSMenuItem(title: "Open in Finder", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for folder in folders {
+            submenu.addItem(openItem(for: folder, title: folder.name))
+        }
+        parent.submenu = submenu
+        menu.addItem(parent)
     }
 
-    @objc private func chooseFolder() {
-        panelController.store.chooseFolder()
+    private func openItem(for folder: TrackedFolder, title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(openFolderInFinder(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = folder.path
+        return item
+    }
+
+    @objc private func openFolderInFinder(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    @objc private func addFolder() {
+        panelController.registry.chooseFolder()
     }
 
     @objc private func resetFolder() {
-        panelController.store.resetToDesktop()
+        panelController.registry.resetToDesktopOnly()
     }
 
     @objc private func toggleLaunchAtLogin() {

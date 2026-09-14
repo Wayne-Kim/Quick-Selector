@@ -6,10 +6,6 @@ import UniformTypeIdentifiers
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
 
-    /// The size every grid cell asks for. Shared so the store can prewarm
-    /// exactly the images the grid is going to request.
-    static let gridSize = CGSize(width: 88, height: 88)
-
     private let cache: NSCache<NSString, NSImage> = {
         let c = NSCache<NSString, NSImage>()
         c.countLimit = 400

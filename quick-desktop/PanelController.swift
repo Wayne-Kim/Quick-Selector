@@ -12,21 +12,33 @@ private final class KeyablePanel: NSPanel {
 final class PanelController {
     private let panel: NSPanel
     let store: DesktopStore
+    let registry: FolderRegistry
+    let options: DisplayOptions
     let notes: NoteStore
     private let panelState: PanelState
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
 
     init() {
-        let store = DesktopStore()
+        let registry = FolderRegistry()
+        let options = DisplayOptions()
+        let store = DesktopStore(registry: registry, options: options)
         let notes = NoteStore()
         let panelState = PanelState()
+        self.registry = registry
+        self.options = options
         self.store = store
         self.notes = notes
         self.panelState = panelState
 
         let content = NSHostingView(
-            rootView: ContentView(store: store, notes: notes, panel: panelState)
+            rootView: ContentView(
+                store: store,
+                registry: registry,
+                options: options,
+                notes: notes,
+                panel: panelState
+            )
         )
         content.translatesAutoresizingMaskIntoConstraints = false
 

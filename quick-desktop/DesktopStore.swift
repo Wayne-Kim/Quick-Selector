@@ -2,12 +2,28 @@ import Foundation
 import Combine
 import AppKit
 
+/// One block of the file list: a single merged block, or one block per tracked
+/// folder when the panel is grouped by folder.
+struct FileSection: Identifiable, Equatable {
+    let folder: TrackedFolder?
+    let files: [DesktopFile]
+
+    var id: String { folder?.path ?? "all" }
+}
+
+struct FolderLoadFailure: Equatable {
+    let message: String
+    let isPermissionDenied: Bool
+}
+
 @MainActor
 final class DesktopStore: ObservableObject {
+    @Published private(set) var sections: [FileSection] = []
+    /// Every file in display order, flattened across sections. Selection and
+    /// keyboard navigation work off this order.
     @Published private(set) var files: [DesktopFile] = []
-    @Published private(set) var hasAccess: Bool = true
+    @Published private(set) var failures: [String: FolderLoadFailure] = [:]
     @Published private(set) var lastError: String?
-    @Published private(set) var folderURL: URL
 
     /// URLs of the currently selected files.
     @Published var selection: Set<URL> = []
@@ -17,103 +33,86 @@ final class DesktopStore: ObservableObject {
     @Published var renamingFileID: URL?
     /// State of the inline rename field. Deliberately a separate observable
     /// object: typing changes it many times per second, and only the field
-    /// itself should repaint — not every cell in the grid.
+    /// itself should repaint - not every cell in the grid.
     let rename = RenameState()
+
+    let registry: FolderRegistry
+    let options: DisplayOptions
 
     /// Anchor of a shift/range selection; stays put while the focus end moves.
     private var selectionAnchor: URL?
     /// The moving end of the selection (the "cursor" for arrow navigation).
     private var selectionFocus: URL?
 
-    /// Number of columns in the grid — must match `ContentView`'s layout so
-    /// vertical arrow navigation lands on the right neighbour.
-    let columnCount = 3
-
     /// Undo stack for reversible file operations (Trash / Rename).
     private let undoManager = UndoManager()
 
-    private var observer: DesktopFolderObserver?
+    private var scans: [String: [DesktopFile]] = [:]
+    private var observers: [String: DesktopFolderObserver] = [:]
+    private var refreshTasks: [String: Task<Void, Never>] = [:]
+    private var refreshQueued: Set<String> = []
+    private var cancellables: Set<AnyCancellable> = []
 
-    private static let folderPathDefaultsKey = "trackedFolderPath"
     private static let starredDefaultsKey = "starredFilePaths"
 
-    /// The folder tracked when the user hasn't chosen a custom one — the system Desktop.
-    static var defaultFolderURL: URL {
-        FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSString("~/Desktop").expandingTildeInPath)
-    }
-
-    init(folderURL: URL? = nil) {
-        self.folderURL = folderURL ?? Self.loadPersistedFolder() ?? Self.defaultFolderURL
+    init(registry: FolderRegistry, options: DisplayOptions) {
+        self.registry = registry
+        self.options = options
         self.starredPaths = Set(UserDefaults.standard.stringArray(forKey: Self.starredDefaultsKey) ?? [])
-        startObserving()
-        // Load (and prewarm thumbnails) at launch rather than on first open.
-        refresh()
+
+        registry.$folders
+            .sink { [weak self] folders in
+                Task { @MainActor in self?.syncFolders(folders) }
+            }
+            .store(in: &cancellables)
+
+        // `objectWillChange` fires before the new value lands, so the rebuild
+        // is deferred a turn to read the option the user just picked.
+        options.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.rebuild() }
+            }
+            .store(in: &cancellables)
     }
 
-    /// `true` when tracking the system Desktop (i.e. no custom folder is set).
-    var isTrackingDesktop: Bool {
-        folderURL.standardizedFileURL == Self.defaultFolderURL.standardizedFileURL
+    /// Number of columns the grid draws, so vertical arrow navigation lands on
+    /// the right neighbour.
+    var columnCount: Int { options.viewStyle.columnCount }
+
+    var deniedFolders: [TrackedFolder] {
+        registry.folders.filter { failures[$0.path]?.isPermissionDenied == true }
     }
 
-    /// Localized display name of the tracked folder, e.g. "Desktop", "Downloads".
-    var folderName: String {
-        let display = FileManager.default.displayName(atPath: folderURL.path)
-        return display.isEmpty ? folderURL.lastPathComponent : display
+    var hasAccess: Bool {
+        registry.folders.isEmpty || deniedFolders.count < registry.folders.count
     }
 
-    // MARK: - Folder selection
-
-    /// Presents a directory picker and, if the user confirms, switches to that folder.
-    func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.prompt = "Track"
-        panel.message = "Choose a folder for Quick Desktop to track."
-        panel.directoryURL = folderURL
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setFolder(url)
+    /// Folders that failed to load, in tracked order, for the inline warning.
+    var failedFolders: [TrackedFolder] {
+        registry.folders.filter { failures[$0.path] != nil }
     }
 
-    /// Switches the tracked folder, persists the choice, and reloads.
-    func setFolder(_ url: URL) {
-        let normalized = url.standardizedFileURL
-        guard normalized != folderURL.standardizedFileURL else { return }
-        folderURL = normalized
-        Self.persistFolder(normalized)
-        clearSelection()
-        undoManager.removeAllActions()
-        startObserving()
-        refresh()
-    }
+    // MARK: - Folder set
 
-    /// Reverts to tracking the system Desktop.
-    func resetToDesktop() {
-        setFolder(Self.defaultFolderURL)
-    }
+    private func syncFolders(_ folders: [TrackedFolder]) {
+        let paths = Set(folders.map(\.path))
 
-    // MARK: - Persistence
-
-    private static func loadPersistedFolder() -> URL? {
-        guard let path = UserDefaults.standard.string(forKey: folderPathDefaultsKey) else { return nil }
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-            return nil
+        for (path, observer) in observers where !paths.contains(path) {
+            observer.stop()
+            observers[path] = nil
+            scans[path] = nil
+            failures[path] = nil
+            refreshTasks[path]?.cancel()
+            refreshTasks[path] = nil
+            refreshQueued.remove(path)
         }
-        return URL(fileURLWithPath: path)
-    }
 
-    private static func persistFolder(_ url: URL) {
-        let defaults = UserDefaults.standard
-        if url.standardizedFileURL == defaultFolderURL.standardizedFileURL {
-            defaults.removeObject(forKey: folderPathDefaultsKey)
-        } else {
-            defaults.set(url.path, forKey: folderPathDefaultsKey)
+        for folder in folders where observers[folder.path] == nil {
+            startObserving(folder.path)
+            refreshFolder(folder.path)
         }
+
+        rebuild()
     }
 
     // MARK: - Selection
@@ -178,20 +177,48 @@ final class DesktopStore: ObservableObject {
     func moveSelection(_ direction: MoveDirection, extend: Bool) {
         guard !files.isEmpty else { return }
         let cursor = selectionFocus ?? selectionAnchor ?? selection.first
-        guard let current = cursor, let idx = files.firstIndex(where: { $0.url == current }) else {
+        guard let current = cursor, let index = files.firstIndex(where: { $0.url == current }) else {
             select(files[0])
             return
         }
-        let delta: Int
-        switch direction {
-        case .left: delta = -1
-        case .right: delta = 1
-        case .up: delta = -columnCount
-        case .down: delta = columnCount
-        }
-        let target = idx + delta
-        guard target >= 0, target < files.count else { return }
+        guard let target = targetIndex(from: index, direction: direction) else { return }
         if extend { extendSelection(to: files[target]) } else { select(files[target]) }
+    }
+
+    private func targetIndex(from index: Int, direction: MoveDirection) -> Int? {
+        switch direction {
+        case .left: return index > 0 ? index - 1 : nil
+        case .right: return index + 1 < files.count ? index + 1 : nil
+        case .up: return verticalTarget(from: index, goingDown: false)
+        case .down: return verticalTarget(from: index, goingDown: true)
+        }
+    }
+
+    /// Vertical steps stay inside the file's own section, because each section
+    /// starts a fresh row. Stepping off either end lands on the neighbouring
+    /// section instead of skipping a screenful.
+    private func verticalTarget(from index: Int, goingDown: Bool) -> Int? {
+        guard let position = sectionPosition(of: index) else { return nil }
+        let count = sections[position.section].files.count
+        let step = goingDown ? columnCount : -columnCount
+        let next = position.indexInSection + step
+        if next >= 0, next < count { return position.offset + next }
+        if goingDown {
+            let sectionEnd = position.offset + count
+            return sectionEnd < files.count ? sectionEnd : nil
+        }
+        return position.offset > 0 ? position.offset - 1 : nil
+    }
+
+    private func sectionPosition(of index: Int) -> (section: Int, offset: Int, indexInSection: Int)? {
+        var offset = 0
+        for (sectionIndex, section) in sections.enumerated() {
+            if index < offset + section.files.count {
+                return (sectionIndex, offset, index - offset)
+            }
+            offset += section.files.count
+        }
+        return nil
     }
 
     // MARK: - Actions on the selection
@@ -231,7 +258,7 @@ final class DesktopStore: ObservableObject {
         registerRestoreUndo(for: moves)
         selectionAnchor = nil
         selectionFocus = nil
-        refresh()
+        refreshFolders(containing: moves.map { $0.original })
     }
 
     // MARK: - Stars
@@ -387,11 +414,11 @@ final class DesktopStore: ObservableObject {
                 let moves = store.performTrash(restored)
                 guard !moves.isEmpty else { return }
                 store.registerRestoreUndo(for: moves)
-                store.refresh()
+                store.refreshFolders(containing: restored)
             }
             undoManager.setActionName(actionName(forTrashCount: restored.count))
             selection = Set(restored)
-            refresh()
+            refreshFolders(containing: restored)
         }
         if let failure { lastError = failure; NSSound.beep() }
     }
@@ -431,7 +458,7 @@ final class DesktopStore: ObservableObject {
                 store.performRename(from: destination, to: source)
             }
             undoManager.setActionName("Rename")
-            refresh()
+            refreshFolders(containing: [source, destination])
         } catch {
             lastError = (error as NSError).localizedDescription
             NSSound.beep()
@@ -502,83 +529,137 @@ final class DesktopStore: ObservableObject {
 
     // MARK: - Observing
 
-    private func startObserving() {
-        observer?.stop()
-        let observer = DesktopFolderObserver(url: folderURL) { [weak self] in
+    private func startObserving(_ path: String) {
+        observers[path]?.stop()
+        let observer = DesktopFolderObserver(url: URL(fileURLWithPath: path)) { [weak self] in
             Task { @MainActor in
-                self?.refresh()
+                self?.refreshFolder(path)
             }
         }
         observer.start()
-        self.observer = observer
+        observers[path] = observer
     }
 
-    /// Reload in flight, if any. A second request while one is running is
-    /// folded into a single follow-up scan instead of piling up.
-    private var refreshTask: Task<Void, Never>?
-    private var refreshQueued = false
+    // MARK: - Loading
 
     func refresh() {
-        guard refreshTask == nil else {
-            refreshQueued = true
+        for folder in registry.folders { refreshFolder(folder.path) }
+    }
+
+    private func refreshFolders(containing urls: [URL]) {
+        let paths = Set(urls.map { $0.deletingLastPathComponent().standardizedFileURL.path })
+        let tracked = registry.folders.map(\.path).filter { paths.contains($0) }
+        if tracked.isEmpty {
+            refresh()
+        } else {
+            for path in tracked { refreshFolder(path) }
+        }
+    }
+
+    /// Reloads one folder. A second request while a scan is running is folded
+    /// into a single follow-up scan instead of piling up.
+    private func refreshFolder(_ path: String) {
+        guard refreshTasks[path] == nil else {
+            refreshQueued.insert(path)
             return
         }
-        let url = folderURL
-        refreshTask = Task { @MainActor [weak self] in
+        let url = URL(fileURLWithPath: path)
+        refreshTasks[path] = Task { @MainActor [weak self] in
             let result = await Task.detached(priority: .userInitiated) {
                 Self.loadFiles(at: url)
             }.value
             guard let self else { return }
-            self.refreshTask = nil
+            self.refreshTasks[path] = nil
             defer {
-                if self.refreshQueued {
-                    self.refreshQueued = false
-                    self.refresh()
-                }
+                if self.refreshQueued.remove(path) != nil { self.refreshFolder(path) }
             }
-            // Ignore results from a folder we've since switched away from.
-            guard self.folderURL == url else { return }
-            self.apply(result)
+            // Ignore results for a folder that is no longer tracked.
+            guard self.registry.folder(atPath: path) != nil else { return }
+            self.apply(result, for: path)
         }
     }
 
-    /// Publishes a scan result, touching `@Published` state only where it
-    /// actually differs — every mutation here rebuilds the whole grid, and
-    /// most scans (panel opened, unrelated write in the folder) find nothing
-    /// new at all.
-    private func apply(_ result: Result<[DesktopFile], Error>) {
+    private func apply(_ result: Result<[DesktopFile], Error>, for path: String) {
         switch result {
         case .success(let loaded):
-            if files != loaded {
-                files = loaded
-                pruneTransientStateToCurrentFiles()
-            }
-            if !hasAccess { hasAccess = true }
+            if scans[path] != loaded { scans[path] = loaded }
+            if failures[path] != nil { failures[path] = nil }
             if lastError != nil { lastError = nil }
-            prewarmThumbnails()
         case .failure(let error):
-            if !files.isEmpty { files = [] }
+            if scans[path]?.isEmpty == false { scans[path] = [] }
             let ns = error as NSError
-            if ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoPermissionError || ns.code == 257) {
-                if hasAccess { hasAccess = false }
-            }
-            if lastError != ns.localizedDescription { lastError = ns.localizedDescription }
+            let denied = ns.domain == NSCocoaErrorDomain
+                && (ns.code == NSFileReadNoPermissionError || ns.code == 257)
+            let failure = FolderLoadFailure(message: ns.localizedDescription, isPermissionDenied: denied)
+            if failures[path] != failure { failures[path] = failure }
         }
+        rebuild()
+    }
+
+    /// Publishes the merged, sorted result, touching `@Published` state only
+    /// where it actually differs - every mutation here rebuilds the whole grid,
+    /// and most scans find nothing new at all.
+    private func rebuild() {
+        let next = makeSections()
+        guard next != sections else {
+            prewarmThumbnails()
+            return
+        }
+        sections = next
+        files = next.flatMap(\.files)
+        pruneTransientStateToCurrentFiles()
+        prewarmThumbnails()
+    }
+
+    private func makeSections() -> [FileSection] {
+        let folders = registry.folders
+        switch options.grouping {
+        case .merged:
+            let merged = folders.flatMap { scans[$0.path] ?? [] }
+            return [FileSection(folder: nil, files: sorted(merged))]
+        case .byFolder:
+            return folders.map { FileSection(folder: $0, files: sorted(scans[$0.path] ?? [])) }
+        }
+    }
+
+    private func sorted(_ items: [DesktopFile]) -> [DesktopFile] {
+        items.sorted { isOrderedBefore($0, $1) }
+    }
+
+    private func isOrderedBefore(_ lhs: DesktopFile, _ rhs: DesktopFile) -> Bool {
+        switch options.sortKey {
+        case .dateModified where lhs.modifiedAt != rhs.modifiedAt:
+            return inChosenOrder(lhs.modifiedAt < rhs.modifiedAt)
+        case .size where lhs.size != rhs.size:
+            return inChosenOrder(lhs.size < rhs.size)
+        case .kind where lhs.kind != rhs.kind:
+            return inChosenOrder(lhs.kind < rhs.kind)
+        case .name:
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            if comparison != .orderedSame { return inChosenOrder(comparison == .orderedAscending) }
+        default:
+            break
+        }
+        let byName = lhs.name.localizedStandardCompare(rhs.name)
+        if byName != .orderedSame { return byName == .orderedAscending }
+        return lhs.url.path < rhs.url.path
+    }
+
+    private func inChosenOrder(_ ascendingResult: Bool) -> Bool {
+        options.ascending ? ascendingResult : !ascendingResult
     }
 
     /// Generates the first screenful of thumbnails ahead of time so the panel
     /// opens with images rather than filling in after the fact.
     private func prewarmThumbnails() {
+        let style = options.viewStyle
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         ThumbnailCache.shared.prewarm(
-            files.prefix(Self.prewarmCount),
-            size: ThumbnailCache.gridSize,
+            files.prefix(style.prewarmCount),
+            size: style.thumbnailSize,
             scale: scale
         )
     }
-
-    /// Roughly one visible page of the 3-column grid.
-    private static let prewarmCount = 15
 
     nonisolated private static func loadFiles(at url: URL) -> Result<[DesktopFile], Error> {
         let fm = FileManager.default
@@ -589,6 +670,7 @@ final class DesktopStore: ObservableObject {
             .isHiddenKey,
             .nameKey,
         ]
+        let folderPath = url.standardizedFileURL.path
         do {
             let urls = try fm.contentsOfDirectory(
                 at: url,
@@ -610,10 +692,10 @@ final class DesktopStore: ObservableObject {
                     name: name,
                     modifiedAt: mtime,
                     size: size,
-                    isDirectory: isDir
+                    isDirectory: isDir,
+                    folderPath: folderPath
                 ))
             }
-            items.sort { $0.modifiedAt > $1.modifiedAt }
             return .success(items)
         } catch {
             return .failure(error)
