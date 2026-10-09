@@ -105,9 +105,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private func body(for store: DesktopStore) -> some View {
-        if !store.hasAccess {
+        if store.showsPermissionDenied {
             permissionDenied
-        } else if store.files.isEmpty {
+        } else if store.showsReadFailure {
+            readFailure
+        } else if store.showsLoadingPlaceholder {
+            loadingState
+        } else if store.showsEmptyFolder {
             emptyState
         } else {
             fileList
@@ -152,6 +156,41 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            ProgressView()
+            Text("Looking in \(store.folderName)…")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var readFailure: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: "folder.badge.questionmark")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("Can’t read \(store.folderName)")
+                .font(.headline)
+            if let message = store.lastError {
+                Text(message)
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
+            Button("Choose Folder…") {
+                store.chooseFolder()
+            }
+            .padding(.top, 4)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
     }
 

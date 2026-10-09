@@ -2,10 +2,21 @@ import Foundation
 import Combine
 import AppKit
 
+/// Result of the last directory scan. Distinct from an empty file list so the
+/// panel never claims the folder is empty while a scan is still in flight, or
+/// when the folder simply could not be read.
+enum FolderScanStatus: Equatable {
+    case pending
+    case ready
+    case accessDenied
+    case failed
+}
+
 @MainActor
 final class DesktopStore: ObservableObject {
     @Published private(set) var files: [DesktopFile] = []
     @Published private(set) var hasAccess: Bool = true
+    @Published private(set) var scanStatus: FolderScanStatus = .pending
     @Published private(set) var lastError: String?
     @Published private(set) var folderURL: URL
 
@@ -33,6 +44,7 @@ final class DesktopStore: ObservableObject {
     private let undoManager = UndoManager()
 
     private var observer: DesktopFolderObserver?
+    private let defaults: UserDefaults
 
     private static let folderPathDefaultsKey = "trackedFolderPath"
     private static let starredDefaultsKey = "starredFilePaths"
@@ -43,13 +55,24 @@ final class DesktopStore: ObservableObject {
             ?? URL(fileURLWithPath: NSString("~/Desktop").expandingTildeInPath)
     }
 
-    init(folderURL: URL? = nil) {
-        self.folderURL = folderURL ?? Self.loadPersistedFolder() ?? Self.defaultFolderURL
-        self.starredPaths = Set(UserDefaults.standard.stringArray(forKey: Self.starredDefaultsKey) ?? [])
+    init(folderURL: URL? = nil, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.folderURL = folderURL ?? Self.loadPersistedFolder(from: defaults) ?? Self.defaultFolderURL
+        self.starredPaths = Set(defaults.stringArray(forKey: Self.starredDefaultsKey) ?? [])
         startObserving()
         // Load (and prewarm thumbnails) at launch rather than on first open.
         refresh()
     }
+
+    /// True only after a successful scan found nothing. Used so the panel's
+    /// empty state cannot appear while the first listing is still pending.
+    var showsEmptyFolder: Bool { scanStatus == .ready && files.isEmpty }
+
+    var showsLoadingPlaceholder: Bool { scanStatus == .pending && files.isEmpty }
+
+    var showsPermissionDenied: Bool { scanStatus == .accessDenied }
+
+    var showsReadFailure: Bool { scanStatus == .failed }
 
     /// `true` when tracking the system Desktop (i.e. no custom folder is set).
     var isTrackingDesktop: Bool {
@@ -84,9 +107,13 @@ final class DesktopStore: ObservableObject {
         let normalized = url.standardizedFileURL
         guard normalized != folderURL.standardizedFileURL else { return }
         folderURL = normalized
-        Self.persistFolder(normalized)
+        Self.persistFolder(normalized, defaults: defaults)
         clearSelection()
         undoManager.removeAllActions()
+        files = []
+        scanStatus = .pending
+        lastError = nil
+        hasAccess = true
         startObserving()
         refresh()
     }
@@ -98,8 +125,8 @@ final class DesktopStore: ObservableObject {
 
     // MARK: - Persistence
 
-    private static func loadPersistedFolder() -> URL? {
-        guard let path = UserDefaults.standard.string(forKey: folderPathDefaultsKey) else { return nil }
+    private static func loadPersistedFolder(from defaults: UserDefaults) -> URL? {
+        guard let path = defaults.string(forKey: folderPathDefaultsKey) else { return nil }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
             return nil
@@ -107,8 +134,7 @@ final class DesktopStore: ObservableObject {
         return URL(fileURLWithPath: path)
     }
 
-    private static func persistFolder(_ url: URL) {
-        let defaults = UserDefaults.standard
+    private static func persistFolder(_ url: URL, defaults: UserDefaults) {
         if url.standardizedFileURL == defaultFolderURL.standardizedFileURL {
             defaults.removeObject(forKey: folderPathDefaultsKey)
         } else {
@@ -263,7 +289,7 @@ final class DesktopStore: ObservableObject {
     }
 
     private func persistStars() {
-        UserDefaults.standard.set(Array(starredPaths), forKey: Self.starredDefaultsKey)
+        defaults.set(Array(starredPaths), forKey: Self.starredDefaultsKey)
     }
 
     // MARK: - Rename
@@ -526,7 +552,7 @@ final class DesktopStore: ObservableObject {
         let url = folderURL
         refreshTask = Task { @MainActor [weak self] in
             let result = await Task.detached(priority: .userInitiated) {
-                Self.loadFiles(at: url)
+                DesktopFolderListing.load(at: url)
             }.value
             guard let self else { return }
             self.refreshTask = nil
@@ -542,6 +568,18 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    /// Waits until any in-flight (and coalesced) scan has published. Tests use
+    /// this instead of sleeping; the panel does not need it.
+    func awaitIdle() async {
+        for _ in 0..<500 {
+            if refreshTask == nil && !refreshQueued {
+                await Task.yield()
+                if refreshTask == nil && !refreshQueued { return }
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     /// Publishes a scan result, touching `@Published` state only where it
     /// actually differs — every mutation here rebuilds the whole grid, and
     /// most scans (panel opened, unrelated write in the folder) find nothing
@@ -553,14 +591,19 @@ final class DesktopStore: ObservableObject {
                 files = loaded
                 pruneTransientStateToCurrentFiles()
             }
+            if scanStatus != .ready { scanStatus = .ready }
             if !hasAccess { hasAccess = true }
             if lastError != nil { lastError = nil }
             prewarmThumbnails()
         case .failure(let error):
             if !files.isEmpty { files = [] }
             let ns = error as NSError
-            if ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoPermissionError || ns.code == 257) {
+            let denied = ns.domain == NSCocoaErrorDomain && (ns.code == NSFileReadNoPermissionError || ns.code == 257)
+            if denied {
+                if scanStatus != .accessDenied { scanStatus = .accessDenied }
                 if hasAccess { hasAccess = false }
+            } else {
+                if scanStatus != .failed { scanStatus = .failed }
             }
             if lastError != ns.localizedDescription { lastError = ns.localizedDescription }
         }
@@ -579,46 +622,6 @@ final class DesktopStore: ObservableObject {
 
     /// Roughly one visible page of the 3-column grid.
     private static let prewarmCount = 15
-
-    nonisolated private static func loadFiles(at url: URL) -> Result<[DesktopFile], Error> {
-        let fm = FileManager.default
-        let keys: [URLResourceKey] = [
-            .contentModificationDateKey,
-            .fileSizeKey,
-            .isDirectoryKey,
-            .isHiddenKey,
-            .nameKey,
-        ]
-        do {
-            let urls = try fm.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: keys,
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            )
-            var items: [DesktopFile] = []
-            items.reserveCapacity(urls.count)
-            for fileURL in urls {
-                let name = fileURL.lastPathComponent
-                if name.hasPrefix(".") { continue }
-                if name == "Icon\r" { continue }
-                let values = try? fileURL.resourceValues(forKeys: Set(keys))
-                let mtime = values?.contentModificationDate ?? .distantPast
-                let size = Int64(values?.fileSize ?? 0)
-                let isDir = values?.isDirectory ?? false
-                items.append(DesktopFile(
-                    url: fileURL,
-                    name: name,
-                    modifiedAt: mtime,
-                    size: size,
-                    isDirectory: isDir
-                ))
-            }
-            items.sort { $0.modifiedAt > $1.modifiedAt }
-            return .success(items)
-        } catch {
-            return .failure(error)
-        }
-    }
 }
 
 /// The inline rename field's editing state, kept out of `DesktopStore` so that

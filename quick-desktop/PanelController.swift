@@ -100,6 +100,7 @@ final class PanelController {
     }
 
     func show(relativeTo button: NSStatusBarButton?) {
+        panelState.prepareForShow()
         store.refresh()
         positionPanel(relativeTo: button)
         panel.orderFrontRegardless()

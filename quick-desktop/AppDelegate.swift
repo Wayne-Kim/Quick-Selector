@@ -4,6 +4,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted unit tests import this app target; don't install a live
+        // status item or observe the real Desktop while they run.
+        if NSClassFromString("XCTestCase") != nil { return }
         statusBarController = StatusBarController()
         // Sparkle's updater is otherwise created the first time the right-click
         // menu asks whether it can check for updates, stalling that menu.

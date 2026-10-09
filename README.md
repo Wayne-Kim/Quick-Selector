@@ -99,6 +99,14 @@ mkdir -p tools/sparkle && curl -L \
 open quick-desktop.xcodeproj # Xcode에서 열기
 ```
 
+### Tests
+
+Unit tests import the app target and cover newest-first listing of a tracked-folder fixture, the file-URL drag source, folder watching, and the empty-vs-loading panel states. They do not drive the menu-bar UI (that path needs a logged-in GUI session). From the repo root:
+
+```bash
+xcodebuild test -project quick-desktop.xcodeproj -scheme quick-desktop -destination 'platform=macOS'
+```
+
 ### 릴리즈
 
 ```bash

@@ -20,4 +20,10 @@ enum PanelMode: String, CaseIterable, Identifiable {
 @MainActor
 final class PanelState: ObservableObject {
     @Published var mode: PanelMode = .files
+
+    /// Opening the panel is the screenshot-grab path. Notes must not stay in
+    /// front of the newest Desktop file from a previous session in the panel.
+    func prepareForShow() {
+        mode = .files
+    }
 }

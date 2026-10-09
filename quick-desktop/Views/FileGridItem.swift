@@ -45,7 +45,7 @@ struct FileGridItem: View, Equatable {
             await loadThumbnail()
         }
         .onDrag {
-            NSItemProvider(contentsOf: file.url) ?? NSItemProvider()
+            FileDragSource.itemProvider(for: file.url)
         } preview: {
             dragPreview
         }
