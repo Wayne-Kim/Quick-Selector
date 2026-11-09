@@ -43,6 +43,7 @@ targets:
         NSDocumentsFolderUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
         NSDownloadsFolderUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
         NSRemovableVolumesUsageDescription: "Quick Selector reads files from a folder you choose to track so you can drag them from the menu bar."
+        NSAppleEventsUsageDescription: "Quick Selector checks Chrome's open tabs so a saved site switches to its existing tab instead of opening a new one."
         NSHighResolutionCapable: true
         SUFeedURL: "https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/appcast.xml"
         SUPublicEDKey: "${SPARKLE_PUBLIC_KEY}"

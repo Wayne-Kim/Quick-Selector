@@ -5,6 +5,7 @@ struct ContentView: View {
     @ObservedObject var registry: FolderRegistry
     @ObservedObject var options: DisplayOptions
     @ObservedObject var notes: NoteStore
+    @ObservedObject var sites: SiteStore
     @ObservedObject var panel: PanelState
 
     var body: some View {
@@ -20,6 +21,7 @@ struct ContentView: View {
             // being typed in it.
             if store.renamingFileID != nil { store.commitRename() }
             notes.commitDraft()
+            sites.cancelRecording()
         }
     }
 
@@ -28,6 +30,8 @@ struct ContentView: View {
         switch panel.mode {
         case .files: filesHeader
         case .notes: notesHeader
+        case .sites: sitesHeader
+        case .shortcuts: shortcutsHeader
         }
     }
 
@@ -48,7 +52,39 @@ struct ContentView: View {
         switch panel.mode {
         case .files: filesContent
         case .notes: NotesView(store: notes)
+        case .sites: SitesView(store: sites)
+        case .shortcuts: ShortcutsView(store: sites)
         }
+    }
+
+    private var shortcutsHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "command")
+                .foregroundStyle(.tint)
+            Text("Shortcuts")
+                .font(.headline)
+            Spacer()
+            Text("\(sites.sites.filter { $0.shortcut != nil }.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var sitesHeader: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "globe")
+                .foregroundStyle(.tint)
+            Text("Sites")
+                .font(.headline)
+            Spacer()
+            Text("\(sites.sites.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private var notesHeader: some View {

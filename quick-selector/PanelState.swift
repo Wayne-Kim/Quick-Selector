@@ -6,6 +6,8 @@ import Foundation
 enum PanelMode: String, CaseIterable, Identifiable {
     case files
     case notes
+    case sites
+    case shortcuts
 
     var id: String { rawValue }
 
@@ -13,6 +15,8 @@ enum PanelMode: String, CaseIterable, Identifiable {
         switch self {
         case .files: return "Files"
         case .notes: return "Notes"
+        case .sites: return "Sites"
+        case .shortcuts: return "Shortcuts"
         }
     }
 }

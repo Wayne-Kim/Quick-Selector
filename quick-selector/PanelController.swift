@@ -15,6 +15,7 @@ final class PanelController {
     let registry: FolderRegistry
     let options: DisplayOptions
     let notes: NoteStore
+    private let sites: SiteStore
     private let panelState: PanelState
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
@@ -24,11 +25,13 @@ final class PanelController {
         let options = DisplayOptions()
         let store = FileStore(registry: registry, options: options)
         let notes = NoteStore()
+        let sites = SiteStore()
         let panelState = PanelState()
         self.registry = registry
         self.options = options
         self.store = store
         self.notes = notes
+        self.sites = sites
         self.panelState = panelState
 
         let content = NSHostingView(
@@ -37,6 +40,7 @@ final class PanelController {
                 registry: registry,
                 options: options,
                 notes: notes,
+                sites: sites,
                 panel: panelState
             )
         )
@@ -123,6 +127,7 @@ final class PanelController {
         // The editor's `onDisappear` doesn't reliably fire when the panel is
         // merely ordered out, so flush the in-progress note here.
         notes.commitDraft()
+        sites.cancelRecording()
         removeEventMonitors()
         panel.orderOut(nil)
     }
@@ -161,6 +166,10 @@ final class PanelController {
                 if self.store.handleKeyDown(event) { return nil }
             case .notes:
                 if self.notes.handleKeyDown(event) { return nil }
+            case .sites:
+                break
+            case .shortcuts:
+                if self.sites.handleKeyDown(event) { return nil }
             }
             if event.keyCode == 53 {
                 self.hide()
